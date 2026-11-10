@@ -1,4 +1,4 @@
-// static/search.js — búsqueda en el navegador. Vainilla ES6+, sin dependencias.
+// static/search.js - bÃºsqueda en el navegador. Vainilla ES6+, sin dependencias.
 // Estilo funcional: funciones puras arriba; el DOM (efectos) solo al final.
 //
 // MDN:
@@ -10,19 +10,50 @@
 
 // --- puras ------------------------------------------------------------------
 
-// "Árbol" → "arbol": minúsculas y sin acentos
-const normalize = s => s.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+// "Ã¡rbol" â†’ "arbol": minÃºsculas y sin acentos
+const normalize = s => (s || "").toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
 
 const terms = query => normalize(query).split(/\s+/).filter(Boolean);
 
-const haystack = post => normalize(`${post.title} ${post.tags.join(" ")} ${post.text}`);
+const haystack = post => normalize(`${post.title} ${(post.tags || []).join(" ")} ${post.text}`);
 
-// Un post coincide si contiene TODOS los términos
+// Un post coincide si contiene TODOS los tÃ©rminos
 const matches = ts => post => ts.every(t => haystack(post).includes(t));
 
+// Cuenta cuÃ¡ntas veces aparece un tÃ©rmino dentro de una cadena
+const countOccurrences = (str, term) => {
+  if (!term || !str) return 0;
+  let count = 0, pos = 0;
+  while ((pos = str.indexOf(term, pos)) !== -1) {
+    count++;
+    pos += term.length;
+  }
+  return count;
+};
+
+// PuntuaciÃ³n de relevancia: mayor peso al tÃ­tulo (x3) y etiquetas (x2) que al cuerpo (x1) (Ejercicio 4)
+const score = ts => post => {
+  const normTitle = normalize(post.title);
+  const normTags = normalize((post.tags || []).join(" "));
+  const normText = normalize(post.text);
+
+  return ts.reduce((acc, t) => {
+    return acc + (countOccurrences(normTitle, t) * 3)
+               + (countOccurrences(normTags, t) * 2)
+               + countOccurrences(normText, t);
+  }, 0);
+};
+
+// BÃºsqueda pura: filtra coincidencias y ordena descendentemente por relevancia
 const search = (posts, query) => {
   const ts = terms(query);
-  return ts.length ? posts.filter(matches(ts)) : [];
+  if (!ts.length) return [];
+
+  return posts
+    .filter(matches(ts))
+    .map(p => ({ post: p, points: score(ts)(p) }))
+    .sort((a, b) => b.points - a.points)
+    .map(item => item.post);
 };
 
 // --- efectos (DOM) ----------------------------------------------------------
@@ -35,7 +66,7 @@ const toItem = base => post => {
 
   const meta = document.createElement("span");
   meta.className = "meta";
-  meta.textContent = ` ${post.date.slice(0, 10)} — ${post.summary}`;
+  meta.textContent = ` ${post.date.slice(0, 10)} - ${post.summary}`;
 
   const li = document.createElement("li");
   li.append(a, meta);
