@@ -110,8 +110,3 @@ make clean
 ```
 
 ---
-
-## 📊 Rúbrica y Entrega
-
-* **Entrega oficial:** Repositorio en fork con commits incrementales e invitación de colaborador enviada al profesor (`fenix011`).
-* **Servidor de prácticas SFTP:** `verjano@asir.fp-bits.org` (respaldo de la memoria en PDF).
