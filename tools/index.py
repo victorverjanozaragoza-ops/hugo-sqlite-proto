@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""tools/index.py — content/**/*.md → SQLite (solo en build) → JSON estático.
+"""tools/index.py - content/**/*.md â†’ SQLite (solo en build) â†’ JSON estÃ¡tico.
 
-Filosofía Unix: hace UNA cosa. Lee Markdown, rellena build/site.db y la
-consulta con SQL para exportar dos ficheros:
+FilosofÃ­a Unix: hace UNA cosa. Lee Markdown, rellena build/site.db y la
+consulta con SQL para exportar tres ficheros:
 
-  static/search.json  → lo consume static/search.js en el navegador
-  data/tags.json      → lo consume Hugo en layouts/index.html
+  static/search.json    lo consume static/search.js en el navegador
+  data/tags.json        lo consume Hugo en layouts/index.html
+  data/stats.json       lo consume Hugo en layouts/partials/footer.html
 
-La base de datos NO se despliega: public/ contiene solo ficheros estáticos.
+La base de datos NO se despliega: public/ contiene solo ficheros estÃ¡ticos.
 
-Solo biblioteca estándar (sqlite3, json, re, pathlib). Estilo funcional:
+Solo biblioteca estÃ¡ndar (sqlite3, json, re, pathlib, sys). Estilo funcional:
 funciones puras para parsear; los efectos (disco, SQL) quedan al final.
 
-Límites (a propósito, KISS): front matter YAML con pares `clave: valor` y
-listas en línea `tags: [a, b]`. Nada de TOML (+++) ni listas multilínea.
+LÃ­mites (a propÃ³sito, KISS): front matter YAML con pares `clave: valor` y
+listas en lÃ­nea `tags: [a, b]`. Nada de TOML (+++) ni listas multilÃ­nea.
 
 Docs: https://docs.python.org/3/library/sqlite3.html
       https://www.sqlite.org/json1.html
@@ -29,6 +30,7 @@ CONTENT = Path("content")
 DB = Path("build/site.db")
 OUT_SEARCH = Path("static/search.json")
 OUT_TAGS = Path("data/tags.json")
+OUT_STATS = Path("data/stats.json")
 
 SCHEMA = """
 CREATE TABLE posts (
@@ -43,9 +45,13 @@ CREATE TABLE tags (
   tag TEXT NOT NULL,
   PRIMARY KEY (url, tag)
 );
+CREATE TABLE words (
+  url TEXT PRIMARY KEY REFERENCES posts(url),
+  n   INTEGER NOT NULL
+);
 """
 
-# SQL produce directamente el JSON (extensión json1 de SQLite).
+# SQL produce directamente el JSON (extensiÃ³n json1 de SQLite).
 Q_SEARCH = """
 SELECT json_group_array(json_object(
   'url', url, 'title', title, 'date', date, 'summary', summary,
@@ -58,7 +64,7 @@ FROM (
 )
 """
 
-# Agregación: cuántas páginas hay por etiqueta.
+# AgregaciÃ³n: cuÃ¡ntas pÃ¡ginas hay por etiqueta.
 Q_TAGS = """
 SELECT json_group_array(json_object('tag', tag, 'total', total))
 FROM (
@@ -66,10 +72,20 @@ FROM (
 )
 """
 
+# AgregaciÃ³n: estadÃ­sticas de palabras globales y por post (Ejercicio 3).
+Q_STATS = """
+SELECT json_object(
+  'total_words', COALESCE(SUM(n), 0),
+  'avg_words', COALESCE(ROUND(AVG(n), 1), 0),
+  'total_posts', COUNT(*)
+)
+FROM words
+"""
+
 # --- funciones puras ---------------------------------------------------------
 
 def split_front_matter(text):
-    """'---\\nclave: valor\\n---\\ncuerpo' → (bloque_yaml, cuerpo)."""
+    """'---\nclave: valor\n---\ncuerpo' â†’ (bloque_yaml, cuerpo)."""
     m = re.match(r"\A---\r?\n(.*?)\r?\n---\r?\n?(.*)\Z", text, re.S)
     return (m.group(1), m.group(2)) if m else ("", text)
 
@@ -80,7 +96,7 @@ def parse_scalar(raw):
         return [parse_scalar(x) for x in v[1:-1].split(",") if x.strip()]
     if v in ("true", "false"):
         return v == "true"
-    return re.sub(r"^(['\"])(.*)\1$", r"\2", v)  # quita comillas simétricas
+    return re.sub(r"^(['\"])(.*)\1$", r"\2", v)  # quita comillas simÃ©tricas
 
 
 def parse_meta(block):
@@ -89,13 +105,13 @@ def parse_meta(block):
     return {k.strip(): parse_scalar(v) for k, v in pairs}
 
 
-# (patrón, reemplazo) aplicados en orden: Markdown → texto plano
+# (patrÃ³n, reemplazo) aplicados en orden: Markdown â†’ texto plano
 CLEANERS = [
-    (r"```.*?```", " "),                              # bloques de código
-    (r"`([^`]*)`", r"\1"),                            # código en línea
-    (r"!?\[([^\]]*)\]\([^)]*\)", r"\1"),              # enlaces/imágenes → texto
+    (r"```.*?```", " "),                              # bloques de cÃ³digo
+    (r"`([^`]*)`", r"\1"),                            # cÃ³digo en lÃ­nea
+    (r"!?\[([^\]]*)\]\([^)]*\)", r"\1"),              # enlaces/imÃ¡genes â†’ texto
     (r"^[ \t]{0,3}(?:#{1,6}|>|[-*+]|\d+\.)[ \t]+", ""),  # marcas de bloque
-    (r"\*{1,3}", ""),                                 # énfasis
+    (r"\*{1,3}", ""),                                 # Ã©nfasis
     (r"\s+", " "),                                    # espacios
 ]
 
@@ -106,11 +122,16 @@ def plain(markdown):
 
 
 def shorten(text, n=160):
-    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "."
+
+
+def count_words(text):
+    """FunciÃ³n pura: calcula el total de palabras en el texto plano."""
+    return len(re.findall(r"\b[\w\-]+\b", text))
 
 
 def url_of(path):
-    """content/posts/x.md → /posts/x/  (como hace Hugo)."""
+    """content/posts/x.md â†’ /posts/x/ (como hace Hugo)."""
     parts = path.relative_to(CONTENT).with_suffix("").parts
     parts = parts[:-1] if parts[-1] == "index" else parts
     return "/" + "/".join(parts) + "/"
@@ -129,12 +150,14 @@ def read_page(path):
         "tags": tags if isinstance(tags, list) else [tags],
         "draft": meta.get("draft", False) is True,
         "text": text,
+        "words": count_words(text),
     }
 
 
-def read_all():
+def read_all(include_drafts=False):
+    """Lee pÃ¡ginas markdown. Si include_drafts es False, filtra borradores (Ejercicio 2)."""
     files = (p for p in sorted(CONTENT.rglob("*.md")) if p.name != "_index.md")
-    return [page for page in map(read_page, files) if not page["draft"]]
+    return [page for page in map(read_page, files) if include_drafts or not page["draft"]]
 
 
 # --- efectos: disco y SQL ----------------------------------------------------
@@ -150,24 +173,34 @@ def build_db(pages):
     con.executemany(
         "INSERT OR IGNORE INTO tags(url, tag) VALUES (?, ?)",
         [(p["url"], t) for p in pages for t in p["tags"]])
+    con.executemany(
+        "INSERT OR REPLACE INTO words(url, n) VALUES (?, ?)",
+        [(p["url"], p["words"]) for p in pages])
     con.commit()
     return con
 
 
 def export(con, query, out):
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(con.execute(query).fetchone()[0] + "\n", encoding="utf-8")
+    row = con.execute(query).fetchone()
+    content = (row[0] if row and row[0] is not None else "[]") + "\n"
+    out.write_text(content, encoding="utf-8")
 
 
 def main():
     if not CONTENT.is_dir():
-        sys.exit("index.py: ejecútalo desde la raíz del repo (make index)")
-    pages = read_all()
+        sys.exit("index.py: ejecÃºtalo desde la raÃ­z del repo (make index)")
+
+    include_drafts = "--drafts" in sys.argv
+    pages = read_all(include_drafts=include_drafts)
     con = build_db(pages)
     export(con, Q_SEARCH, OUT_SEARCH)
     export(con, Q_TAGS, OUT_TAGS)
+    export(con, Q_STATS, OUT_STATS)
     con.close()
-    print(f"index: {len(pages)} páginas → {OUT_SEARCH}, {OUT_TAGS}")
+
+    draft_info = " (incluyendo borradores)" if include_drafts else ""
+    print(f"index: {len(pages)} pÃ¡ginas{draft_info} â†’ {OUT_SEARCH}, {OUT_TAGS}, {OUT_STATS}")
 
 
 if __name__ == "__main__":
