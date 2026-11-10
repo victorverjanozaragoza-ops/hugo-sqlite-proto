@@ -1,3 +1,8 @@
 <footer>
-  <p class="meta">Generado con Hugo · índice con SQLite en build · sin base de datos en producción</p>
+  <p class="meta">
+    Generado con Hugo Â· Ãndice con SQLite en build Â· Sin base de datos en producciÃ³n
+    {{ with hugo.Data.stats }}
+    Â· <b>{{ .total_words }}</b> palabras indexadas en <b>{{ .total_posts }}</b> posts
+    {{ end }}
+  </p>
 </footer>
