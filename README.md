@@ -1,112 +1,70 @@
-# 🚀 Práctica SGBD P1.1: Hugo + SQLite, un prototipo didáctico
+# Práctica SGBD: Hugo + SQLite (Prototipo didáctico)
 
 <p align="center">
   <a href="./practica_sgbd_hugo_sqlite.pdf" download>
-    <img src="https://img.shields.io/badge/📥_DESCARGAR_ESTA_PRÁCTICA_EN_PDF-FF5722?style=for-the-badge&logo=adobeacrobatreader&logoColor=white" alt="Descargar PDF" height="44"/>
+    <img src="https://img.shields.io/badge/📥_Descargar_Práctica_en_PDF-red?style=for-the-badge&logo=adobeacrobatreader&logoColor=white" alt="Descargar PDF" height="40"/>
   </a>
 </p>
 
 <p align="center">
-  <b><a href="./practica_sgbd_hugo_sqlite.pdf">📄 Ver / Descargar PDF desde el repositorio</a></b> &nbsp;|&nbsp; 
-  <b><a href="https://raw.githubusercontent.com/victorverjanozaragoza-ops/hugo-sqlite-proto/main/practica_sgbd_hugo_sqlite.pdf">⚡ Descarga directa del archivo PDF</a></b>
+  <a href="./practica_sgbd_hugo_sqlite.pdf"><b>Descargar o ver la memoria en PDF</b></a>
 </p>
 
 ---
 
-## 📋 Información de la Entrega
-
-| Campo | Detalle |
-| :--- | :--- |
-| **Módulo** | Sistemas Gestores de Bases de Datos (SGBD - P1.1) |
-| **Alumno** | Víctor Verjano |
-| **Curso** | 2º ASIR |
-| **Docente** | Jordi López Amat (`fenix011`) |
-| **Guía Oficial** | [Librebits - SGBD P1.1 Hugo + SQLite](https://www.librebits.info/2asir/sgbd/hugo-sqlite-proto/) |
-| **Repositorio Base** | [fp-bits/hugo-sqlite-proto](https://github.com/fp-bits/hugo-sqlite-proto) |
-| **Entrega** | Invitación como colaborador enviada a `fenix011` |
+* **Alumno:** Víctor Verjano
+* **Curso:** 2º ASIR
+* **Módulo:** Sistemas Gestores de Bases de Datos (SGBD)
 
 ---
 
-## 💡 Concepto: SQLite solo en tiempo de compilación (Build-Time)
+## Descripción de la práctica
 
-A diferencia de los sitios web con bases de datos dinámicas tradicionales (donde un servidor MySQL o PostgreSQL está permanentemente activo atendiendo peticiones HTTP), en esta práctica **SQLite se utiliza exclusivamente durante la fase de construcción (*build*)**:
+En esta práctica integramos **SQLite** en el proceso de compilación (build) de un sitio web estático generado con **Hugo**.
+
+La idea principal es seguir la filosofía Unix: la base de datos `build/site.db` solo se utiliza en local durante la ejecución de `tools/index.py` para leer los ficheros Markdown, guardarlos en tablas y extraer los datos necesarios en formato JSON. En producción (directorio `public/`) no hay base de datos, solo ficheros estáticos.
 
 ```text
-content/*.md  ──>  tools/index.py  ──>  build/site.db  ──┬──>  static/search.json  ──>  Navegador (search.js)
- (Markdown)        (parsea + INSERT)    (SQLite local)   ├──>  data/tags.json      ──>  Hugo (index.html)
-                                                         └──>  data/stats.json     ──>  Hugo (footer.html)
+content/*.md  -->  tools/index.py  -->  build/site.db  --+-->  static/search.json  -->  navegador (search.js)
+ (Markdown)        (parsea + INSERT)    (SQLite local)   +-->  data/tags.json      -->  Hugo (index.html)
+                                                         +-->  data/stats.json     -->  Hugo (footer.html)
 
-                                        hugo  ──>  public/  (Lo único que se despliega)
+                                        hugo  -->  public/ (sitio estático final)
 ```
 
-* **Filosofía Unix:** Cada herramienta hace una sola cosa bien y se comunican a través de ficheros.
-* **Seguridad y Rendimiento:** `build/site.db` es efímera y no se publica. El directorio `public/` generado contiene únicamente ficheros estáticos HTML, CSS y JavaScript.
+---
+
+## Ejercicios realizados
+
+### Ejercicio 1: Nuevo post con etiqueta SQL
+He creado el post `content/posts/sql-en-build-time.md` con etiquetas `[sql, sgbd, hugo]`. Al pasar la indexación, SQLite agrupa las etiquetas con la consulta `Q_TAGS` (`GROUP BY tag`) y muestra el recuento actualizado en la página de inicio.
+
+### Ejercicio 2: Soporte para borradores (--drafts)
+`hugo server -D` permite ver los posts en borrador (`draft: true`), pero la búsqueda no los encontraba porque `tools/index.py` los descartaba directamente. He añadido el parámetro `--drafts` al script y la regla `make serve-drafts` en el `Makefile` para poder indexar y probar borradores en local.
+
+### Ejercicio 3: Tabla de recuento de palabras y footer
+He añadido una tabla relacional `words(url, n)` al esquema de SQLite. Una función calcula las palabras de cada artículo y una consulta agregada (`SUM` y `AVG`) genera `data/stats.json`. Luego, en `layouts/partials/footer.html` se muestran el total de palabras y posts publicados.
+
+### Ejercicio 4: Ordenar búsqueda por relevancia
+He modificado `static/search.js` para que los resultados de búsqueda salgan ordenados de mayor a menor coincidencia, dando más peso a las palabras que aparecen en el título (x3) y en las etiquetas (x2) que en el cuerpo del texto. La función sigue siendo pura y en JavaScript vanilla sin librerías externas.
 
 ---
 
-## 🛠️ Ejercicios Resueltos
-
-### ✅ Ejercicio 1: Añadir post con `tags: [sql]`
-* Se ha creado el artículo [`content/posts/sql-en-build-time.md`](./content/posts/sql-en-build-time.md).
-* Incluye en su front matter `tags: [sql, sgbd, hugo]`.
-* Al ejecutar `tools/index.py`, la consulta SQL agregada `Q_TAGS` agrupa y cuenta automáticamente la nueva etiqueta `sql` sin necesidad de modificar lógica en el código fuente.
-
-### ✅ Ejercicio 2: Flag `--drafts` en `tools/index.py` y soporte en `Makefile`
-* **Problema:** `hugo server -D` compila los borradores (`draft: true`), pero la búsqueda no los localizaba porque `tools/index.py` los descartaba de forma fija.
-* **Solución:** Se ha modificado `read_all(include_drafts=False)` en `tools/index.py` para admitir el parámetro `--drafts` desde la línea de comandos (`sys.argv`).
-* **Regla en Makefile:** Se ha añadido el comando `make serve-drafts`:
-  ```makefile
-  serve-drafts: ## Servidor local con recarga incluyendo borradores
-  	python3 tools/index.py --drafts
-  	hugo server -D
-  ```
-
-### ✅ Ejercicio 3: Tabla `words(url, n)` y estadísticas globales en el footer
-* Se ha ampliado el esquema de SQLite en `tools/index.py` incorporando la tabla relacional `words`:
-  ```sql
-  CREATE TABLE words (
-    url TEXT PRIMARY KEY REFERENCES posts(url),
-    n   INTEGER NOT NULL
-  );
-  ```
-* Se implementó una función pura `count_words(text)` con expresiones regulares para calcular la longitud en palabras de cada post.
-* Se añadió la consulta `Q_STATS` que exporta métricas agregadas a `data/stats.json`:
-  ```sql
-  SELECT json_object(
-    'total_words', COALESCE(SUM(n), 0),
-    'avg_words', COALESCE(ROUND(AVG(n), 1), 0),
-    'total_posts', COUNT(*)
-  ) FROM words;
-  ```
-* En [`layouts/partials/footer.html`](./layouts/partials/footer.html) se consume `hugo.Data.stats` para mostrar el conteo total de palabras indexadas y artículos.
-* Se actualizaron las reglas `check` y `clean` del `Makefile` para validar y limpiar `data/stats.json`.
-
-### ✅ Ejercicio 4: Ordenación de resultados de búsqueda por relevancia ponderada
-* En [`static/search.js`](./static/search.js) se refactorizó la función `search` para aplicar ponderación funcional:
-  * Coincidencia en el **título**: factor **x3**.
-  * Coincidencia en las **etiquetas**: factor **x2**.
-  * Coincidencia en el **cuerpo**: factor **x1**.
-* Mantiene un estilo puramente funcional (funciones puras sin mutación, ES6+ vanilla) y ordena los resultados de mayor a menor puntuación antes de renderizarlos en el DOM.
-
----
-
-## 🚀 Uso y Comprobación
+## Comandos para probar el proyecto
 
 ```bash
-# Validar que los JSON exportados son válidos
+# Comprobar que los JSON generados son correctos
 make check
 
-# Compilar el sitio estático para producción (public/)
+# Compilar el sitio estático en public/
 make build
 
-# Servidor de desarrollo estándar (puerto 1313)
+# Arrancar el servidor de desarrollo local
 make serve
 
-# Servidor de desarrollo con borradores incluidos
+# Arrancar el servidor incluyendo borradores
 make serve-drafts
 
-# Limpiar ficheros generados
+# Limpiar archivos generados
 make clean
 ```
-
----
